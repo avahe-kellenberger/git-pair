@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #define NO_FORMAT "\033[0m"
 #define BOLD "\033[1m"
@@ -23,6 +24,7 @@ const char *title =
 
 int init(void);
 int prompt_add_author(void);
+void prompt(char *response, char *prompt, ...);
 int add_author(void);
 int select_authors(void);
 int select_author_index(int author_count, char *prompt);
@@ -41,31 +43,26 @@ void print_title(void);
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        select_authors();
+        return select_authors();
+    } 
+
+    const char *param = argv[1];
+    if (strcmp("add", param) == 0) {
+        int added = prompt_add_author();
+        printf("%sAuthors added: %d%s\n", GREEN, added, NO_FORMAT);
+    } else if (strcmp("init", param) == 0) {
+        init();
+    } else if (strcmp("help", param) == 0) {
+        print_help();
     } else {
-        const char *param = argv[1];
-        if (strcmp("add", param) == 0) {
-            int added = prompt_add_author();
-            printf("%sAuthors added: %d%s\n", GREEN, added, NO_FORMAT);
-        } else if (strcmp("init", param) == 0) {
-            init();
-        } else if (strcmp("help", param) == 0) {
-            print_help();
-        } else {
-            printf("%sInvalid input ", RED);
-            printf("- run the `help` command to see parameter options.%s\n", NO_FORMAT);
-        }
+        printf("%sInvalid input ", RED);
+        printf("- run the `help` command to see parameter options.%s\n", NO_FORMAT);
     }
     return 0;
 }
 
-/**
- * 
- */
 int init(void) {
     print_title();
-
-    // Add authors.
     if (prompt_add_author() > 0) {
         return select_authors();
     }
@@ -97,33 +94,43 @@ int prompt_add_author(void) {
 int add_author(void) {
     // Prompt for author name.
     char author_name[BUFSIZ];
-    printf("%sEnter author's full name:%s ", GREEN, NO_FORMAT);
-    fgets(author_name, BUFSIZ, stdin);
-    author_name[strcspn(author_name, "\n")] = '\0';
+    prompt(author_name, "%sEnter author's full name:%s ", GREEN, NO_FORMAT);
+    if (strlen(author_name) == 0) {
+        printf("%sNo author added.%s\n", RED, NO_FORMAT);
+        return -1;
+    }
 
     // Prompt for author email.
     char author_email[BUFSIZ];
-    printf("%sEnter author's email:%s ", GREEN, NO_FORMAT);
-    fgets(author_email, BUFSIZ, stdin);
-    author_email[strcspn(author_email, "\n")] = '\0';
-
-    if (author_name == NULL || author_email == NULL) {
-        printf("%sNo author added - exiting.%s", RED, NO_FORMAT);
+    prompt(author_email, "%sEnter author's email:%s ", GREEN, NO_FORMAT);
+    if (strlen(author_email) == 0) {
+        printf("%sNo author added.%s\n", RED, NO_FORMAT);
         return -1;
     }
 
     // Open authors file for appending.
     FILE *authors_file = fopen(authors_file_name, "a+");
 
-    // Create entry format.
-    char entry[BUFSIZ];
-    snprintf(entry, BUFSIZ, "%s:<%s>\n", author_name, author_email);
+    // Create an author entry.
+    // Double BUFSIZ (two string inputs) + 3 format chars. 
+    int max_size = BUFSIZ * 2 + 3;
+    char entry[max_size];
+    snprintf(entry, max_size, "%s:<%s>\n", author_name, author_email);
 
     // Write entry to the file.
     fputs(entry, authors_file);
 
     // Close file on exit.
     return fclose(authors_file);
+}
+
+void prompt(char *response, char *prompt, ...) {
+    va_list format_args;
+    va_start(format_args, prompt);
+    vprintf(prompt, format_args);
+    va_end(format_args);
+    fgets(response, BUFSIZ, stdin);
+    response[strcspn(response, "\n")] = '\0';
 }
 
 /**
@@ -138,7 +145,6 @@ int select_authors(void) {
     display_available_authors(authors, author_count);
 
     // Set the author.
-
     int index = select_author_index(author_count, "\n%sSelect the author:%s ");
     if (index < -1 || index > author_count - 1) {
         printf("%sIndex out of bounds - exiting.%s\n", RED, NO_FORMAT);
@@ -158,8 +164,7 @@ int select_authors(void) {
         }
         printf("%sSet git user and email as %s %s%s\n\n", GREEN, name, email, NO_FORMAT);
     }
-    
-    
+
     // Set the co-author.
     index = select_author_index(author_count, "%sSelect the co-author:%s ");
     if (index < -1 || index > author_count - 1) {
