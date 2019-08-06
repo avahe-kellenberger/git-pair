@@ -170,17 +170,12 @@ int remove_author(void) {
 
     char *entry;
     int deleted;
-    if (index == -1) {
-        set_author("", "");
-        printf("%sRemoved author.%s\n", RED, NO_FORMAT);
-    } else {
+
+    if (index > -1) {
         entry = strdup(authors[index]);
         deleted = delete_entry(entry);
-        if (deleted == 0) {
-            printf("%sRemoved entry %s %s\n\n", GREEN, entry, NO_FORMAT);
-        }
+        free(entry);
     }
-    free(entry);
     free_authors(authors, author_count);
     return deleted == 0 ? 0 : -1;
 }
@@ -203,16 +198,19 @@ int delete_entry(char *entry) {
     size_t len = 0;
     ssize_t read;
     while ((read = getline(&line, &len, authors_file)) != -1) {
+        line[strcspn(line, "\n")] = 0;
         if (strcmp(line, entry) != 0) {
-            fprintf(temp_file, "%s", line);
+            fprintf(temp_file, "%s\n", line);
+        } else {
+            printf("%sRemoved entry %s %s\n\n", RED, line, NO_FORMAT);
         }
     }
     free(line);
 
     const int closed_authors_file = fclose(authors_file);
     const int closed_temp_file = fclose(temp_file);
-    if (closed_temp_file != 0 || closed_authors_file != 0) {
-        return closed_temp_file | closed_temp_file;
+    if (closed_temp_file == EOF || closed_authors_file == EOF) {
+        return -1;
     }
 
     const int removed_authors_file = remove(AUTHORS_FILE_NAME);
@@ -231,7 +229,8 @@ int select_authors(void) {
     int author_count = 0;
     char **authors = read_authors(&author_count);
 
-    // Show available authors.
+    // Show available authors as well as a removal (unassign) option.
+    printf("\t%s[%d]%s: %s%s%s\n", GREEN, 0, NO_FORMAT, RED, "Remove current author from role", NO_FORMAT);
     display_available_authors(authors, author_count);
 
     // Set the author.
@@ -244,7 +243,7 @@ int select_authors(void) {
     char *entry, *name, *email;
     if (index == -1) {
         set_author("", "");
-        printf("%sRemoved author.%s\n", RED, NO_FORMAT);
+        printf("%sAuthor set to unassigned.%s\n", RED, NO_FORMAT);
     } else {
         entry = strdup(authors[index]);
         name = strsep(&entry, ":");
@@ -264,7 +263,7 @@ int select_authors(void) {
 
     if (index == -1) {
         set_co_author("", "");
-        printf("%sRemoved co-author.%s\n", RED, NO_FORMAT);
+        printf("%sCo-author set to unassigned.%s\n", RED, NO_FORMAT);
     } else {
         entry = strdup(authors[index]);
         name = strsep(&entry, ":");
@@ -303,8 +302,6 @@ int select_author_index(int author_count, char *prompt) {
  * Displays all authors in the authors file.
  */
 void display_available_authors(char **authors, int author_count) {
-    // Display authors on each line to select for author, then co-author.
-    printf("\t%s[%d]%s: %s%s%s\n", GREEN, 0, NO_FORMAT, RED, "Remove current author from role", NO_FORMAT);
     for (int i = 0; i < author_count; i++) {
         printf("\t%s[%d]%s: %s\n", GREEN, i + 1, NO_FORMAT, authors[i]);
     }
@@ -387,7 +384,8 @@ void print_help(void) {
     printf("%s%sCommands:%s\n\n", RED, BOLD, NO_FORMAT);
     printf("   %s<no command>%s - Select an author and optional co-author which exists in %s\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
     printf("   %sinit%s         - Initiate the setup for git pair\n", GREEN, NO_FORMAT);
-    printf("   %sadd%s          - Add an author to your %s file for selection\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
+    printf("   %sadd%s          - Add an author to the %s file for selection\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
+    printf("   %sremove%s       - Remove an author from the %s file\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
     printf("   %shelp%s         - Display this message\n", GREEN, NO_FORMAT);
     printf("\n");
 }
