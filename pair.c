@@ -9,8 +9,8 @@
 #define RED "\033[38;5;203m"
 #define YELLOW "\033[38;5;226m"
 
-const char *authors_file_name = ".gitauthors";
-const char *commit_template_path = ".git/commit-template";
+const char AUTHORS_FILE_NAME[] = ".gitauthors";
+const char COMMMIT_TEMPLATE_PATH[] = ".git/commit-template";
 
 const char *title =
 "           _ _                 _\n"
@@ -26,6 +26,9 @@ int init(void);
 int prompt_add_author(void);
 void prompt(char *response, char *prompt, ...);
 int add_author(void);
+int remove_author(void);
+int append_entry(char *author_name, char *author_email);
+int delete_entry(char *entry);
 int select_authors(void);
 int select_author_index(int author_count, char *prompt);
 void display_available_authors(char **authors, int author_count);
@@ -48,8 +51,10 @@ int main(int argc, char *argv[]) {
 
     const char *param = argv[1];
     if (strcmp("add", param) == 0) {
-        int added = prompt_add_author();
-        printf("%sAuthors added: %d%s\n", GREEN, added, NO_FORMAT);
+        const int num_added_authors = prompt_add_author();
+        printf("%sAuthors added: %d%s\n", GREEN, num_added_authors, NO_FORMAT);
+    } else if (strcmp("remove", param) == 0) {
+        remove_author();
     } else if (strcmp("init", param) == 0) {
         init();
     } else if (strcmp("help", param) == 0) {
@@ -108,20 +113,7 @@ int add_author(void) {
         return -1;
     }
 
-    // Open authors file for appending.
-    FILE *authors_file = fopen(authors_file_name, "a+");
-
-    // Create an author entry.
-    // Double BUFSIZ (two string inputs) + 3 format chars. 
-    int max_size = BUFSIZ * 2 + 3;
-    char entry[max_size];
-    snprintf(entry, max_size, "%s:<%s>\n", author_name, author_email);
-
-    // Write entry to the file.
-    fputs(entry, authors_file);
-
-    // Close file on exit.
-    return fclose(authors_file);
+    return append_entry(author_name, author_email);
 }
 
 void prompt(char *response, char *prompt, ...) {
@@ -131,6 +123,104 @@ void prompt(char *response, char *prompt, ...) {
     va_end(format_args);
     fgets(response, BUFSIZ, stdin);
     response[strcspn(response, "\n")] = '\0';
+}
+
+int append_entry(char *author_name, char *author_email) {
+    FILE *authors_file = fopen(AUTHORS_FILE_NAME, "a+");
+    if (authors_file == NULL) {
+        exit(EXIT_FAILURE);
+    }
+    // Double BUFSIZ (two string inputs) + 3 format chars. 
+    int max_size = BUFSIZ * 2 + 3;
+    char entry[max_size];
+    snprintf(entry, max_size, "%s:<%s>\n", author_name, author_email);
+    fputs(entry, authors_file);
+    return fclose(authors_file);
+}
+
+
+int prompt_remove_author(void) {
+    int count = 1;
+    while (remove_author() == 0) {
+        printf("%s\nPress enter to remove an author, or q to exit:%s ", RED, NO_FORMAT);
+        // Exit if the user only enters q.
+        if (getchar() == 'q') {
+            break;
+        }
+        printf("\n");
+        count++;
+    }
+    return count;
+}
+
+int remove_author(void) {
+    int author_count = 0;
+    char **authors = read_authors(&author_count);
+
+    // Show available authors.
+    display_available_authors(authors, author_count);
+
+    // Select the author.
+    int index = select_author_index(author_count, "\n%sSelect the author to remove:%s ");
+    if (index < -1 || index > author_count - 1) {
+        free_authors(authors, author_count);
+        printf("%sIndex out of bounds - exiting.%s\n", RED, NO_FORMAT);
+        exit(1);
+    }
+
+    char *entry;
+    int deleted;
+    if (index == -1) {
+        set_author("", "");
+        printf("%sRemoved author.%s\n", RED, NO_FORMAT);
+    } else {
+        entry = strdup(authors[index]);
+        deleted = delete_entry(entry);
+        if (deleted == 0) {
+            printf("%sRemoved entry %s %s\n\n", GREEN, entry, NO_FORMAT);
+        }
+    }
+    free(entry);
+    free_authors(authors, author_count);
+    return deleted == 0 ? 0 : -1;
+}
+
+
+int delete_entry(char *entry) {
+    FILE *authors_file = fopen(AUTHORS_FILE_NAME, "r");
+    if (authors_file == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+    const char *temp_file_name = "_temp";
+    FILE *temp_file = fopen(temp_file_name, "w");
+    if (temp_file == NULL) {
+        exit(EXIT_FAILURE);
+    }
+
+    // Delete line matching entry.
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    while ((read = getline(&line, &len, authors_file)) != -1) {
+        if (strcmp(line, entry) != 0) {
+            fprintf(temp_file, "%s", line);
+        }
+    }
+    free(line);
+
+    const int closed_authors_file = fclose(authors_file);
+    const int closed_temp_file = fclose(temp_file);
+    if (closed_temp_file != 0 || closed_authors_file != 0) {
+        return closed_temp_file | closed_temp_file;
+    }
+
+    const int removed_authors_file = remove(AUTHORS_FILE_NAME);
+    if (removed_authors_file != 0) {
+        return removed_authors_file;
+    }
+    // Replace old file with temp file.
+    return rename(temp_file_name, AUTHORS_FILE_NAME);
 }
 
 /**
@@ -156,8 +246,8 @@ int select_authors(void) {
         set_author("", "");
         printf("%sRemoved author.%s\n", RED, NO_FORMAT);
     } else {
-        entry = index == -1 ? "" : strdup(authors[index]);
-        name = index == -1 ? "" : strsep(&entry, ":");
+        entry = strdup(authors[index]);
+        name = strsep(&entry, ":");
         email = entry;
         if (set_author(name, email) != 0) {
             return -1;
@@ -234,10 +324,10 @@ void free_authors(char **authors, int author_count) {
  * @return All author entries in the authors file.
  */
 char **read_authors(int *length) {
-    FILE *authors_file = fopen(authors_file_name, "r");
+    FILE *authors_file = fopen(AUTHORS_FILE_NAME, "r");
     // Check if authors file exists.
     if (authors_file == NULL) {
-        printf("%sFile %s not in directory.%s\n", RED, authors_file_name, NO_FORMAT);
+        printf("%sFile %s not in directory.%s\n", RED, AUTHORS_FILE_NAME, NO_FORMAT);
         printf("Run with the init parameter to create the file and add code authors.\n");
         exit(1);
     }
@@ -279,12 +369,12 @@ int set_author_email(char *email) {
 
 int set_commit_template(void) {
     char git_cmd[BUFSIZ];
-    snprintf(git_cmd, BUFSIZ, "git config commit.template \"%s\"", commit_template_path);
+    snprintf(git_cmd, BUFSIZ, "git config commit.template \"%s\"", COMMMIT_TEMPLATE_PATH);
     return system(git_cmd);
 }
 
 int set_co_author(char *name, char *email) {
-    FILE *template = fopen(commit_template_path, "w");
+    FILE *template = fopen(COMMMIT_TEMPLATE_PATH, "w");
     if (strlen(name) > 0 || strlen(email) > 0) {
         char entry[BUFSIZ];
         snprintf(entry, BUFSIZ, "\n\nCo-authored-by: %s %s", name, email);
@@ -295,9 +385,9 @@ int set_co_author(char *name, char *email) {
 
 void print_help(void) {
     printf("%s%sCommands:%s\n\n", RED, BOLD, NO_FORMAT);
-    printf("   %s<no command>%s - Select an author and optional co-author which exists in %s\n", GREEN, NO_FORMAT, authors_file_name);
+    printf("   %s<no command>%s - Select an author and optional co-author which exists in %s\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
     printf("   %sinit%s         - Initiate the setup for git pair\n", GREEN, NO_FORMAT);
-    printf("   %sadd%s          - Add an author to your %s file for selection\n", GREEN, NO_FORMAT, authors_file_name);
+    printf("   %sadd%s          - Add an author to your %s file for selection\n", GREEN, NO_FORMAT, AUTHORS_FILE_NAME);
     printf("   %shelp%s         - Display this message\n", GREEN, NO_FORMAT);
     printf("\n");
 }
